@@ -1,23 +1,38 @@
 {
-    "name": "resultant.js",
-    "version": "1.0.0",
-    "scripts": {
-        "build": "tsc"
+  "name": "resultant.js",
+  "version": "1.0.0",
+  "description": "A JavaScript library for handling results similar to Go and Rust.",
+  "scripts": {
+    "build": "tsc"
+  },
+  "exports": {
+    "./goify": {
+      "default": "./dist/goify/index.js",
+      "types": "./dist/goify/index.d.ts"
     },
-    "exports": {
-        "./goify": {
-            "default": "./dist/goify/index.js",
-            "types": "./dist/goify/index.d.ts"
-        },
-        "./rustify": {
-            "default": "./dist/rustify/index.js",
-            "types": "./dist/rustify/index.d.ts"
-        }
-    },
-    "private": true,
-    "author": "lucap9056",
-    "license": "MIT",
-    "files": [
-        "dist"
-    ]
+    "./rustify": {
+      "default": "./dist/rustify/index.js",
+      "types": "./dist/rustify/index.d.ts"
+    }
+  },
+  "keywords": [
+    "result",
+    "go",
+    "rust",
+    "error handling",
+    "typescript"
+  ],
+  "homepage": "https://github.com/lucap9056/resultant.js#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lucap9056/resultant.js.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lucap9056/resultant.js/issues"
+  },
+  "author": "lucap9056",
+  "license": "MIT",
+  "files": [
+    "dist"
+  ]
 }
