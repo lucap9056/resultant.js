@@ -639,7 +639,10 @@ export const match = <T>(input: Option<T> | SafeResult<T>):
             return input.expect("Option is None");
         }
         else if (isResultMatch(input)) {
-            return input.unwrap();
+            if (input.isOk()) {
+                return input.unwrap();
+            }
+            throw input.unwrapErr();
         }
         throw new Error("Unhandled input type for match function.");
     });
@@ -652,7 +655,10 @@ export const matchAsync = async<T>(input: Promise<Option<T> | SafeResult<T>>):
             return result.expect("Option is None");
         }
         else if (isResultMatch(result)) {
-            return result.unwrap();
+            if (result.isOk()) {
+                return result.unwrap();
+            }
+            throw result.unwrapErr();
         }
 
         throw new Error("Unhandled input type for match function.");
