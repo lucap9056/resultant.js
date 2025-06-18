@@ -323,32 +323,25 @@ export class SafeResult<T> {
 
     /**
      * Returns the contained `Ok` value if the result is `Ok`, otherwise returns `undefined`.
-     * @returns The `Ok` value or `undefined`.
+     * @returns An `Option` containing the `Ok` value, or an empty `Option` if the result is `Err`.
      */
-    public ok(): T | undefined {
+    public ok(): Option<T> {
         if (isOk(this.result)) {
-            return this.result.value;
+            return new Option(this.result.value);
         }
-        return undefined;
+        return new Option();
     }
 
     /**
      * Returns the contained `Err` value if the result is `Err`, otherwise returns `undefined`.
-     * @returns The `Err` message or `undefined`.
+     * The `Err` value is wrapped in an `Error` object for consistent error handling.
+     * @returns An `Option` containing the `Error` object, or an empty `Option` if the result is `Ok`.
      */
-    public err(): string | undefined {
+    public err(): Option<Error> {
         if (isErr(this.result)) {
-            return this.result.error;
+            return new Option(new Error(this.result.error));
         }
-        return undefined;
-    }
-
-    /**
-     * Converts the `SafeResult` back to its underlying `Result` type.
-     * @returns The `Result<T>` object.
-     */
-    public toResult(): Result<T> {
-        return this.result;
+        return new Option();
     }
 }
 
@@ -438,7 +431,7 @@ class Option<T> {
         if (isSome(this.value)) {
             return this.value;
         }
-        throw new Error();
+        throw new Error("Attempted to unwrap a 'None' Option. No value is present.");
     }
 
     /**
