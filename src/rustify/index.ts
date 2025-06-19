@@ -1,28 +1,54 @@
-import { goifySync, GoifyResult, goify } from "../goify";
+/**
+ * @file This module provides a robust set of types and utilities for handling
+ * operations that can either succeed or fail, and operations that may or
+ * may not return a value. It introduces `Result` and `Option` types,
+ * inspired by Rust's error handling, to promote explicit error management
+ * and prevent unexpected `null` or `undefined` values.
+ */
 
 /**
- * Represents a successful result containing a value of type T.
+ * @interface OutcomeOk
+ * @template T The type of the successful value.
+ * @description Represents a successful outcome containing a value of type T.
  */
-type OkResult<T> = { value: T };
+type OutcomeOk<T> = { value: T };
 
 /**
- * Represents an error result containing an error message.
+ * @interface OutcomeErr
+ * @template T The type of the error value.
+ * @description Represents a failed outcome containing an error of type T.
  */
-type ErrResult = { error: string };
+type OutcomeErr<T> = { error: T };
 
 /**
- * A union type representing either a successful result (OkResult) or an error result (ErrResult).
+ * @template T The type of the successful value.
+ * @description A union type representing an outcome that can be successfully
+ * serialized or contains a string error. This is useful for
+ * API responses or logging where errors need to be stringified.
  */
-export type Result<T> = OkResult<T> | ErrResult;
+export type SerializableOutcome<T> = OutcomeOk<T> | OutcomeErr<string>;
 
 /**
- * Converts an unknown error type into a string representation.
- * Handles strings, Error objects, objects with a 'message' property,
- * and attempts JSON stringification or falls back to String conversion.
- * @param err The unknown error to convert.
- * @returns A string representation of the error.
+ * @template T The type of the successful value.
+ * @template E The type of the error value.
+ * @description A union type representing an outcome that can either be a
+ * success (containing a value of type T) or a failure (containing
+ * an error of type E). This is the fundamental building block for
+ * the `Result` type.
  */
-const convertErrorToString = (err: unknown): string => {
+export type Outcome<T, E> = OutcomeOk<T> | OutcomeErr<E>;
+
+/**
+ * @function convertErrorToString
+ * @template T
+ * @param {unknown} err The error to convert.
+ * @returns {string} A string representation of the error.
+ * @description Converts various error types into a standardized string format.
+ * It handles strings, `Error` objects, objects with a 'message'
+ * property, and attempts JSON serialization for other types,
+ * falling back to `String()` conversion.
+ */
+function convertErrorToString(err: unknown): string {
     if (typeof err === 'string') {
         return err;
     }
@@ -45,364 +71,634 @@ const convertErrorToString = (err: unknown): string => {
 };
 
 /**
- * Executes an asynchronous operation safely and returns a Promise-based Result type.
- * This function wraps a given asynchronous operation, ensuring that its outcome
- * is always encapsulated within a 'Result<T>', which is either a success ('{ value: T }')
- * or a failure ('{ error: string }'). It includes automatic error catching.
- * @param operation The asynchronous function to execute.
- * @returns A Promise that resolves to a 'Result<T>'.
+ * @function buildSerializableOutcome
+ * @template T The type of the successful result.
+ * @param {() => T} operation A synchronous function that returns a value of type T.
+ * @returns {SerializableOutcome<T>} A `SerializableOutcome` representing the result of the operation.
+ * @description Overload for synchronous operations.
  */
-export const buildResult = async <T>(
-    operation: () => Promise<T> | T
-): Promise<Result<T>> => {
-    return new Promise(async (resolve) => {
-        try {
-            const value = await operation();
-            resolve({ value });
-        } catch (err) {
-            const error = convertErrorToString(err);
-            resolve({ error });
+export function buildSerializableOutcome<T>(operation: () => T): SerializableOutcome<T>;
+/**
+ * @function buildSerializableOutcome
+ * @template T The type of the successful result.
+ * @param {() => Promise<T>} operation An asynchronous function that returns a Promise resolving to a value of type T.
+ * @returns {Promise<SerializableOutcome<T>>} A Promise that resolves to a `SerializableOutcome` representing the result of the operation.
+ * @description Overload for asynchronous operations.
+ */
+export function buildSerializableOutcome<T>(operation: () => Promise<T>): Promise<SerializableOutcome<T>>;
+/**
+ * @function buildSerializableOutcome
+ * @template T The type of the successful result.
+ * @param {() => Promise<T> | T} operation A function that can be either synchronous or asynchronous, returning a value of type T or a Promise resolving to T.
+ * @returns {Promise<SerializableOutcome<T>> | SerializableOutcome<T>} A `SerializableOutcome` or a Promise resolving to a `SerializableOutcome`, representing the result of the operation.
+ * @description Executes an operation (synchronous or asynchronous) and wraps its
+ * result in a `SerializableOutcome`. If the operation throws an error
+ * or the Promise rejects, the error is caught and converted to a
+ * string within an `OutcomeErr`.
+ */
+export function buildSerializableOutcome<T>(operation: () => Promise<T> | T): Promise<SerializableOutcome<T>> | SerializableOutcome<T> {
+    try {
+        const result = operation();
+        if (result instanceof Promise) {
+            return result.then((value) => ({ value })).catch((err) => ({ error: convertErrorToString(err) }));
         }
-    });
+        return { value: result };
+    } catch (err) {
+        const error = convertErrorToString(err);
+        return { error };
+    }
 };
-
-export const buildSafeResult = async<T>(
-    operation: () => Promise<T> | T
-): Promise<SafeResult<T>> => {
-    return new Promise(async (resolve) => {
-        try {
-            const value = await operation();
-            resolve(new SafeResult({ value }));
-        } catch (err) {
-            const error = convertErrorToString(err);
-            resolve(new SafeResult({ error }));
-        }
-    });
-};
-
-const isOk = <T>(result: Result<T>): result is OkResult<T> =>
-    'value' in result;
-
-const isErr = <T>(result: Result<T>): result is ErrResult =>
-    'error' in result;
 
 /**
- * A class providing a more functional and robust way to handle operations
- * that can either succeed or fail, inspired by Rust's `Result` enum.
- * It encapsulates a `Result<T>` and provides methods for safely accessing
- * the contained value or error, transforming the result, and chaining operations.
+ * @function buildResult
+ * @template T The type of the successful result.
+ * @template E The type of the error. Defaults to `Error`.
+ * @param {() => Promise<T>} operation An asynchronous function that returns a Promise resolving to a value of type T.
+ * @returns {Promise<Result<T, E>>} A Promise that resolves to a `Result` representing the result of the operation.
+ * @description Overload for asynchronous operations.
  */
-export class SafeResult<T> {
-    /**
-     * Static factory method to create a new `SafeResult` instance from a `Result` or a Promise resolving to a `Result`.
-     * This method handles potential errors during the promise resolution.
-     * @param asyncResult A `Result<T>` or a Promise resolving to a `Result<T>`.
-     * @returns A Promise that resolves to a `SafeResult<T>`.
-     */
-    public static readonly From = async <T>(
-        asyncResult: Result<T> | Promise<Result<T>>
-    ): Promise<SafeResult<T>> => {
-        try {
-            const result = await asyncResult;
-            return new SafeResult(result);
-        } catch (err) {
-            const error = convertErrorToString(err);
-            return new SafeResult({ error });
+export function buildResult<T, E = Error>(operation: () => Promise<T>): Promise<Result<T, E>>;
+/**
+ * @function buildResult
+ * @template T The type of the successful result.
+ * @template E The type of the error. Defaults to `Error`.
+ * @param {() => T} operation A synchronous function that returns a value of type T.
+ * @returns {Result<T, E>} A `Result` representing the result of the operation.
+ * @description Overload for synchronous operations.
+ */
+export function buildResult<T, E = Error>(operation: () => T): Result<T, E>;
+/**
+ * @function buildResult
+ * @template T The type of the successful result.
+ * @template E The type of the error. Defaults to `Error`.
+ * @param {() => Promise<T> | T} operation A function that can be either synchronous or asynchronous, returning a value of type T or a Promise resolving to T.
+ * @returns {Promise<Result<T, E>> | Result<T, E>} A `Result` or a Promise resolving to a `Result`, representing the result of the operation.
+ * @description Executes an operation (synchronous or asynchronous) and wraps its
+ * result in a `Result` type. If the operation throws an error or the
+ * Promise rejects, the error is caught and wrapped in an `Err`.
+ */
+export function buildResult<T, E = Error>(operation: () => Promise<T> | T): Promise<Result<T, E>> | Result<T, E> {
+    try {
+        const result = operation();
+        if (result instanceof Promise) {
+            return result.then(value => Ok<T, E>(value)).catch((err) => Err(err));
         }
-    };
+        return Ok<T, E>(result);
+    }
+    catch (err) {
+        return Err<T, E>(err as E);
+    }
+};
 
-    private result: Result<T>;
+/**
+ * @function isOk
+ * @template T The type of the successful value.
+ * @template E The type of the error value.
+ * @param {Outcome<T, E>} outcome The outcome to check.
+ * @returns {boolean} True if the outcome is `OutcomeOk`, false otherwise.
+ * @description Type guard to check if an `Outcome` is a successful `OutcomeOk`.
+ */
+const isOk = <T, E>(outcome: Outcome<T, E>): outcome is OutcomeOk<T> => 'value' in outcome;
+
+/**
+ * @function isErr
+ * @template T The type of the successful value.
+ * @template E The type of the error value.
+ * @param {Outcome<T, E>} outcome The outcome to check.
+ * @returns {boolean} True if the outcome is `OutcomeErr`, false otherwise.
+ * @description Type guard to check if an `Outcome` is a failed `OutcomeErr`.
+ */
+const isErr = <T, E>(outcome: Outcome<T, E>): outcome is OutcomeErr<E> => 'error' in outcome;
+
+/**
+ * @function Ok
+ * @template T The type of the successful value.
+ * @template E The type of the error value.
+ * @param {T} value The successful value.
+ * @returns {Result<T, E>} A new `Result` instance representing a successful outcome.
+ * @description Creates a new `Result` instance indicating a successful operation.
+ */
+export const Ok = <T, E>(value: T) => new Result<T, E>({ value });
+/**
+ * @function Err
+ * @template T The type of the successful value.
+ * @template E The type of the error value.
+ * @param {E} error The error value.
+ * @returns {Result<T, E>} A new `Result` instance representing a failed outcome.
+ * @description Creates a new `Result` instance indicating a failed operation.
+ */
+export const Err = <T, E>(error: E) => new Result<T, E>({ error });
+
+/**
+ * @class Result
+ * @template T The type of the successful value.
+ * @template E The type of the error value.
+ * @description A class that represents either a success (`Ok`) with a value of type `T`
+ * or a failure (`Err`) with an error of type `E`. This is a common
+ * pattern for error handling in functional programming, inspired by Rust.
+ */
+export class Result<T, E> {
+    /**
+     * @static
+     * @function From
+     * @template T The type of the successful value.
+     * @param {SerializableOutcome<T>} input A `SerializableOutcome` to convert.
+     * @returns {Result<T, Error>} A `Result` instance, converting string errors to `Error` objects.
+     * @description Overload for synchronous `SerializableOutcome` conversion.
+     */
+    public static From<T>(input: SerializableOutcome<T>): Result<T, Error>;
+    /**
+     * @static
+     * @function From
+     * @template T The type of the successful value.
+     * @param {Promise<SerializableOutcome<T>>} input A Promise resolving to a `SerializableOutcome` to convert.
+     * @returns {Promise<Result<T, Error>>} A Promise resolving to a `Result` instance, converting string errors to `Error` objects.
+     * @description Overload for asynchronous `SerializableOutcome` conversion.
+     */
+    public static From<T>(input: Promise<SerializableOutcome<T>>): Promise<Result<T, Error>>;
+    /**
+     * @static
+     * @function From
+     * @template T The type of the successful value.
+     * @param {SerializableOutcome<T> | Promise<SerializableOutcome<T>>} input A `SerializableOutcome` or a Promise resolving to it.
+     * @returns {Result<T, Error> | Promise<Result<T, Error>>} A `Result` or a Promise resolving to a `Result`, converting `SerializableOutcome` to `Result`.
+     * @description Converts a `SerializableOutcome` (or a Promise resolving to one)
+     * into a `Result` type. It specifically transforms string errors
+     * from `SerializableOutcome` into `Error` objects for the `Result`.
+     */
+    public static From<T>(input: SerializableOutcome<T> | Promise<SerializableOutcome<T>>) {
+        if (input instanceof Promise) {
+            return input.then(result => {
+                if (isOk(result)) {
+                    const value = result.value;
+                    return Ok(value);
+                } else {
+                    return Err(new Error(result.error));
+                }
+            }).catch(err => Err(new Error(convertErrorToString(err))));
+        } else {
+
+            if (isOk(input)) {
+                const value = input.value;
+                return new Result({ value });
+            }
+            else {
+                return new Result({ error: new Error(input.error) });
+            }
+
+        }
+    }
+
+    private outcome: Outcome<T, E>;
 
     /**
-     * Constructs a new `SafeResult` instance.
-     * @param result The underlying `Result<T>` object.
+     * @constructor
+     * @param {Outcome<T, E>} outcome The internal outcome (either `OutcomeOk` or `OutcomeErr`).
+     * @description Creates a new `Result` instance. This constructor is typically
+     * used internally; prefer using `Ok()` or `Err()` factory functions.
      */
-    constructor(result: Result<T>) {
-        this.result = result;
+    constructor(outcome: Outcome<T, E>) {
+        this.outcome = outcome;
     }
 
     /**
-     * Checks if the `SafeResult` contains a successful value.
-     * @returns True if the result is Ok, false otherwise.
+     * @method isOk
+     * @returns {boolean} True if the result is `Ok`, false otherwise.
+     * @description Checks if the `Result` contains a successful value.
+     * @typeParam this - Narrows the type of `this` to `Result<T, never>` if true.
      */
-    public isOk(): boolean {
-        return isOk(this.result);
+    public isOk(): this is Result<T, never> {
+        return isOk(this.outcome);
     }
 
     /**
-     * Checks if the `SafeResult` contains an error.
-     * @returns True if the result is Err, false otherwise.
+     * @method isErr
+     * @returns {boolean} True if the result is `Err`, false otherwise.
+     * @description Checks if the `Result` contains an error.
+     * @typeParam this - Narrows the type of `this` to `Result<never, E>` if true.
      */
-    public isErr(): boolean {
-        return isErr(this.result);
+    public isErr(): this is Result<never, E> {
+        return isErr(this.outcome);
     }
 
     /**
-     * Returns `true` if the result is `Ok` and the value inside of it satisfies the predicate `func`.
-     * @param func The predicate function to test the `Ok` value.
-     * @returns `true` if `Ok` and the predicate returns `true`, `false` otherwise.
+     * @method isOkAnd
+     * @param {(value: T) => boolean} func A predicate function to apply if the result is `Ok`.
+     * @returns {boolean} True if the result is `Ok` and the predicate returns true, false otherwise.
+     * @description Checks if the `Result` is `Ok` and the contained value satisfies the given predicate.
      */
     public isOkAnd(func: (value: T) => boolean): boolean {
-        if (isOk(this.result)) {
-            return func(this.result.value);
+        if (isOk(this.outcome)) {
+            return func(this.outcome.value);
         }
         return false;
     }
 
     /**
-     * Returns `true` if the result is `Err` and the value inside of it satisfies the predicate `func`.
-     * @param func The predicate function to test the `Err` value.
-     * @returns `true` if `Err` and the predicate returns `true`, `false` otherwise.
+     * @method isErrAnd
+     * @param {(error: E) => boolean} func A predicate function to apply if the result is `Err`.
+     * @returns {boolean} True if the result is `Err` and the predicate returns true, false otherwise.
+     * @description Overload for synchronous predicate.
      */
-    public isErrAnd(func: (error: string) => boolean): boolean {
-        if (isErr(this.result)) {
-            return func(this.result.error);
+    public isErrAnd(func: (error: E) => boolean): boolean
+    /**
+     * @method isErrAnd
+     * @param {(error: E) => Promise<boolean>} func A predicate function to apply if the result is `Err`.
+     * @returns {Promise<boolean>} A Promise that resolves to true if the result is `Err` and the predicate returns true, false otherwise.
+     * @description Overload for asynchronous predicate.
+     */
+    public isErrAnd(func: (error: E) => Promise<boolean>): Promise<boolean>
+    /**
+     * @method isErrAnd
+     * @param {(error: E) => boolean | Promise<boolean>} func A predicate function to apply if the result is `Err`.
+     * @returns {boolean | Promise<boolean>} True if the result is `Err` and the predicate returns true, false otherwise (or a Promise resolving to this).
+     * @description Checks if the `Result` is `Err` and the contained error satisfies the given predicate.
+     */
+    public isErrAnd(func: (error: E) => boolean | Promise<boolean>): boolean | Promise<boolean> {
+        if (isErr(this.outcome)) {
+            return func(this.outcome.error);
         }
         return false;
     }
 
     /**
-     * Returns the contained `Ok` value, or throws an error if the `SafeResult` is `Err`.
-     * Use with caution, as this can lead to unhandled exceptions.
-     * @returns The contained `Ok` value.
-     * @throws An `Error` if the result is `Err`, with the error message as its content.
+     * @method unwrap
+     * @returns {T} The contained successful value.
+     * @throws {Error} If the result is `Err`, an error is thrown with the error message.
+     * @description Returns the contained `Ok` value.
+     * Throws an `Error` if the value is an `Err`. Use with caution.
      */
     public unwrap(): T {
-        if (isOk(this.result)) {
-            return this.result.value;
+        if (isOk(this.outcome)) {
+            return this.outcome.value;
         }
         throw new Error(
-            `Attempted to unwrap an 'Err' result: ${this.result.error}`
+            `Attempted to unwrap an 'Err' result: ${this.outcome.error}`
         );
     }
 
     /**
-     * Returns the contained `Ok` value, or throws an error with the provided message
-     * if the `SafeResult` is `Err`.
-     * Use with caution, as this can lead to unhandled exceptions.
-     * @param message The message to use if the result is `Err`.
-     * @returns The contained `Ok` value.
-     * @throws An `Error` with the specified message if the result is `Err`.
+     * @method expect
+     * @param {string} message The error message to use if the result is `Err`.
+     * @returns {T} The contained successful value.
+     * @throws {Error} If the result is `Err`, an error is thrown with the provided message.
+     * @description Returns the contained `Ok` value.
+     * Throws an `Error` with a custom message if the value is an `Err`. Use with caution.
      */
     public expect(message: string): T {
-        if (isOk(this.result)) {
-            return this.result.value;
+        if (isOk(this.outcome)) {
+            return this.outcome.value;
         }
         throw new Error(message);
     }
 
     /**
-     * Returns the contained `Ok` value or a provided default value if the `SafeResult` is `Err`.
-     * @param defaultValue The default value to return if the result is `Err`.
-     * @returns The contained `Ok` value or the default value.
+     * @method unwrapOr
+     * @param {T} defaultValue The default value to return if the result is `Err`.
+     * @returns {T} The contained successful value if `Ok`, otherwise the provided `defaultValue`.
+     * @description Returns the contained `Ok` value or a provided default.
      */
     public unwrapOr(defaultValue: T): T {
-        if (isOk(this.result)) {
-            return this.result.value;
+        if (isOk(this.outcome)) {
+            return this.outcome.value;
         }
         return defaultValue;
     }
 
     /**
-     * Returns the contained `Ok` value or computes it from a closure if the `SafeResult` is `Err`.
-     * @param onErrorFunc The function to call if the result is `Err`, which computes the default value.
-     * @returns The contained `Ok` value or the result of `onErrorFunc`.
+     * @method unwrapOrElse
+     * @param {(error: E) => T} onErrorFunc A function that produces a default value if the result is `Err`.
+     * @returns {T} The contained successful value if `Ok`, otherwise the result of `onErrorFunc`.
+     * @description Overload for synchronous error handling function.
      */
-    public unwrapOrElse(onErrorFunc: (error: string) => T): T {
-        if (isOk(this.result)) {
-            return this.result.value;
+    public unwrapOrElse(onErrorFunc: (error: E) => T): T
+    /**
+     * @method unwrapOrElse
+     * @param {(error: E) => Promise<T>} onErrorFunc A function that produces a Promise resolving to a default value if the result is `Err`.
+     * @returns {Promise<T>} A Promise resolving to the contained successful value if `Ok`, otherwise the result of `onErrorFunc`.
+     * @description Overload for asynchronous error handling function.
+     */
+    public unwrapOrElse(onErrorFunc: (error: E) => Promise<T>): Promise<T>
+    /**
+     * @method unwrapOrElse
+     * @param {(error: E) => T | Promise<T>} onErrorFunc A function that produces a default value or a Promise resolving to one if the result is `Err`.
+     * @returns {T | Promise<T>} The contained successful value if `Ok`, otherwise the result of `onErrorFunc` (or a Promise resolving to this).
+     * @description Returns the contained `Ok` value or computes a default from a
+     * function argument if the value is an `Err`.
+     */
+    public unwrapOrElse(onErrorFunc: (error: E) => T | Promise<T>): T | Promise<T> {
+        if (isOk(this.outcome)) {
+            return this.outcome.value;
         }
-        return onErrorFunc(this.result.error);
+        return onErrorFunc(this.outcome.error);
     }
 
     /**
-     * Returns the contained `Err` value, or throws an error if the `SafeResult` is `Ok`.
-     * Use with caution, as this can lead to unhandled exceptions.
-     * @returns An `Error` object containing the error message.
-     * @throws An `Error` if the result is `Ok`.
+     * @method unwrapErr
+     * @returns {E} The contained error value.
+     * @throws {Error} If the result is `Ok`, an error is thrown.
+     * @description Returns the contained `Err` value.
+     * Throws an `Error` if the value is an `Ok`. Use with caution.
      */
-    public unwrapErr(): Error {
-        if (isErr(this.result)) {
-            return new Error(this.result.error);
+    public unwrapErr(): E {
+        if (isErr(this.outcome)) {
+            return this.outcome.error;
         }
         throw new Error('Attempted to unwrap `Err` from an `Ok` result.');
     }
 
     /**
-     * Returns the contained `Err` value, or throws an error with the provided message
-     * if the `SafeResult` is `Ok`.
-     * Use with caution, as this can lead to unhandled exceptions.
-     * @param message The message to use if the result is `Ok`.
-     * @returns An `Error` object containing the error message.
-     * @throws An `Error` with the specified message if the result is `Ok`.
+     * @method expectErr
+     * @param {string} message The error message to use if the result is `Ok`.
+     * @returns {E} The contained error value.
+     * @throws {Error} If the result is `Ok`, an error is thrown with the provided message.
+     * @description Returns the contained `Err` value.
+     * Throws an `Error` with a custom message if the value is an `Ok`. Use with caution.
      */
-    public expectErr(message: string): Error {
-        if (isErr(this.result)) {
-            return new Error(this.result.error);
+    public expectErr(message: string): E {
+        if (isErr(this.outcome)) {
+            return this.outcome.error;
         }
         throw new Error(message);
     }
 
     /**
-     * Maps an `OkResult<T>` to `OkResult<U>` by applying a function to the contained value,
-     * or returns the original `ErrResult` if the `SafeResult` is `Err`.
-     * @param transform The function to apply to the `Ok` value.
-     * @returns A new `SafeResult<U>` with the transformed value or the original error.
+     * @method map
+     * @template U The type of the new successful value.
+     * @param {(value: T) => U} transform A function to apply to the contained `Ok` value.
+     * @returns {Result<U, E>} A new `Result` with the transformed value if `Ok`, otherwise the original `Err`.
+     * @description Overload for synchronous transformation.
      */
-    public map<U>(transform: (value: T) => U): SafeResult<U> {
-        if (isOk(this.result)) {
-            const value = transform(this.result.value);
-            return new SafeResult({ value });
+    public map<U>(transform: (value: T) => U): Result<U, E>
+    /**
+     * @method map
+     * @template U The type of the new successful value.
+     * @param {(value: T) => Promise<U>} transform A function to apply to the contained `Ok` value, returning a Promise.
+     * @returns {Promise<Result<U, E>>} A Promise resolving to a new `Result` with the transformed value if `Ok`, otherwise the original `Err`.
+     * @description Overload for asynchronous transformation.
+     */
+    public map<U>(transform: (value: T) => Promise<U>): Promise<Result<U, E>>
+    /**
+     * @method map
+     * @template U The type of the new successful value.
+     * @param {(value: T) => U | Promise<U>} transform A function to apply to the contained `Ok` value, which can be synchronous or asynchronous.
+     * @returns {Result<U, E> | Promise<Result<U, E>>} A new `Result` or a Promise resolving to a new `Result` with the transformed value if `Ok`, otherwise the original `Err`.
+     * @description Maps a `Result<T, E>` to `Result<U, E>` by applying a function
+     * to a contained `Ok` value, leaving an `Err` value untouched.
+     */
+    public map<U>(transform: (value: T) => U | Promise<U>): Result<U, E> | Promise<Result<U, E>> {
+        if (isOk(this.outcome)) {
+            const result = transform(this.outcome.value);
+            if (result instanceof Promise) {
+                return result.then(value => Ok(value));
+            }
+            return Ok(result);
         }
-        return new SafeResult(this.result);
+        // If it's an Err, we return a new Result with the original error type, but the new value type
+        return new Result<U, E>(this.outcome as OutcomeErr<E>);
     }
 
     /**
-     * Maps an `ErrResult` to a new `ErrResult` by applying a function to the contained error,
-     * or returns the original `OkResult` if the `SafeResult` is `Ok`.
-     * The function's return value is converted to a string error message.
-     * @param transform The function to apply to the `Err` value.
-     * @returns A new `SafeResult<T>` with the transformed error or the original successful value.
+     * @method mapErr
+     * @template U The type of the new error value.
+     * @param {(error: E) => U} transform A function to apply to the contained `Err` value.
+     * @returns {Result<T, U>} A new `Result` with the transformed error if `Err`, otherwise the original `Ok`.
+     * @description Overload for synchronous error transformation.
      */
-    public mapErr<U>(transform: (error: string) => U): SafeResult<T> {
-        if (isErr(this.result)) {
-            const error = convertErrorToString(transform(this.result.error));
-            return new SafeResult({ error });
+    public mapErr<U>(transform: (error: E) => U): Result<T, U>
+    /**
+     * @method mapErr
+     * @template U The type of the new error value.
+     * @param {(error: E) => Promise<U>} transform A function to apply to the contained `Err` value, returning a Promise.
+     * @returns {Result<T, U>} A new `Result` with the transformed error if `Err`, otherwise the original `Ok`.
+     * @description Overload for asynchronous error transformation.
+     */
+    public mapErr<U>(transform: (error: E) => Promise<U>): Result<T, U>
+    /**
+     * @method mapErr
+     * @template U The type of the new error value.
+     * @param {(error: E) => U | Promise<U>} transform A function to apply to the contained `Err` value, which can be synchronous or asynchronous.
+     * @returns {Result<T, U> | Promise<Result<T, U>>} A new `Result` or a Promise resolving to a new `Result` with the transformed error if `Err`, otherwise the original `Ok`.
+     * @description Maps a `Result<T, E>` to `Result<T, U>` by applying a function
+     * to a contained `Err` value, leaving an `Ok` value untouched.
+     */
+    public mapErr<U>(transform: (error: E) => U | Promise<U>): Result<T, U> | Promise<Result<T, U>> {
+        if (isErr(this.outcome)) {
+            const result = transform(this.outcome.error);
+            if (result instanceof Promise) {
+                return result.then((error) => Err(error));
+            }
+            return Err(result);
         }
-        return new SafeResult(this.result);
+        // If it's an Ok, we return a new Result with the original value type, but the new error type
+        return Ok(this.outcome.value as T) as Result<T, U>;
     }
 
     /**
-     * Returns `res` if the `SafeResult` is `Ok`, otherwise returns the `Err` value of `this`.
-     * @param otherResult The other `SafeResult` to return if `this` is `Ok`.
-     * @returns `otherResult` if `this` is `Ok`, otherwise `this` (containing the error).
+     * @method and
+     * @param {Result<T, E>} otherResult Another `Result` to combine with.
+     * @returns {Result<T, E>} If this `Result` is `Ok`, returns `otherResult`. Otherwise, returns this `Err`.
+     * @description Returns `otherResult` if the `Result` is `Ok`, otherwise returns `Err` with the current error.
      */
-    public and<U>(otherResult: SafeResult<U>): SafeResult<U> {
-        if (isOk(this.result)) {
+    public and(otherResult: Result<T, E>): Result<T, E> {
+        if (isOk(this.outcome)) {
             return otherResult;
         }
-        return new SafeResult(this.result);
+        return Err(this.outcome.error);
     }
 
     /**
-     * Calls `transform` if the `SafeResult` is `Ok`, otherwise returns the `Err` value of `this`.
-     * This is a monadic bind operation, useful for chaining operations that might fail.
-     * @param transform The function to call with the `Ok` value, which returns a new `SafeResult`.
-     * @returns A new `SafeResult` from the `transform` function or the original error.
+     * @method andThen
+     * @template U The type of the successful value of the new `Result`.
+     * @param {(value: T) => Result<U, E>} transform A function that takes the `Ok` value and returns a new `Result`.
+     * @returns {Result<U, E>} The result of applying `transform` if `Ok`, otherwise the original `Err`.
+     * @description Overload for synchronous transformation.
      */
-    public andThen<U>(transform: (value: T) => SafeResult<U>): SafeResult<U> {
-        if (isOk(this.result)) {
-            return transform(this.result.value);
+    public andThen<U>(transform: (value: T) => Result<U, E>): Result<U, E>;
+    /**
+     * @method andThen
+     * @template U The type of the successful value of the new `Result`.
+     * @param {(value: T) => Promise<Result<U, E>>} transform A function that takes the `Ok` value and returns a Promise resolving to a new `Result`.
+     * @returns {Promise<Result<U, E>>} A Promise resolving to the result of applying `transform` if `Ok`, otherwise the original `Err`.
+     * @description Overload for asynchronous transformation.
+     */
+    public andThen<U>(transform: (value: T) => Promise<Result<U, E>>): Promise<Result<U, E>>;
+    /**
+     * @method andThen
+     * @template U The type of the successful value of the new `Result`.
+     * @param {(value: T) => Result<U, E> | Promise<Result<U, E>>} transform A function that takes the `Ok` value and returns a new `Result` (synchronous or asynchronous).
+     * @returns {Result<U, E> | Promise<Result<U, E>>} The result of applying `transform` if `Ok`, otherwise the original `Err`.
+     * @description Calls `transform` if the `Result` is `Ok`, otherwise returns the `Err` value.
+     * This is useful for chaining operations that might fail.
+     */
+    public andThen<U>(transform: (value: T) => Result<U, E> | Promise<Result<U, E>>): Result<U, E> | Promise<Result<U, E>> {
+        if (isOk(this.outcome)) {
+            return transform(this.outcome.value);
         }
-        return new SafeResult(this.result);
+        return Err(this.outcome.error);
     }
 
     /**
-     * Returns `this` if the `SafeResult` is `Ok`, otherwise returns `otherResult`.
-     * @param otherResult The other `SafeResult` to return if `this` is `Err`.
-     * @returns `this` if `Ok`, otherwise `otherResult`.
+     * @method or
+     * @param {Result<T, E>} otherResult Another `Result` to combine with.
+     * @returns {Result<T, E>} If this `Result` is `Ok`, returns this `Ok`. Otherwise, returns `otherResult`.
+     * @description Returns the `Result` if it is `Ok`, otherwise returns `otherResult`.
      */
-    public or(otherResult: SafeResult<T>): SafeResult<T> {
-        if (isOk(this.result)) {
-            return this;
+    public or(otherResult: Result<T, E>): Result<T, E> {
+        if (isOk(this.outcome)) {
+            return Ok(this.outcome.value);
         }
         return otherResult;
     }
 
     /**
-     * Returns `this` if the `SafeResult` is `Ok`, otherwise calls `onErrorFunc` and returns the result.
-     * @param onErrorFunc The function to call with the `Err` value, which returns a new `SafeResult`.
-     * @returns `this` if `Ok`, otherwise the result of `onErrorFunc`.
+     * @method orElse
+     * @param {(error: E) => Result<T, E>} onErrorFunc A function that takes the `Err` value and returns a new `Result`.
+     * @returns {Result<T, E>} If this `Result` is `Ok`, returns this `Ok`. Otherwise, returns the result of `onErrorFunc`.
+     * @description Overload for synchronous error handling function.
      */
-    public orElse(onErrorFunc: (error: string) => SafeResult<T>): SafeResult<T> {
-        if (isOk(this.result)) {
-            return this;
-        }
-        return onErrorFunc(this.result.error);
-    }
-
+    public orElse(onErrorFunc: (error: E) => Result<T, E>): Result<T, E>
     /**
-     * Returns the contained `Ok` value if the result is `Ok`, otherwise returns `undefined`.
-     * @returns An `Option` containing the `Ok` value, or an empty `Option` if the result is `Err`.
+     * @method orElse
+     * @param {(error: E) => Promise<Result<T, E>>} onErrorFunc A function that takes the `Err` value and returns a Promise resolving to a new `Result`.
+     * @returns {Promise<Result<T, E>>} If this `Result` is `Ok`, returns this `Ok`. Otherwise, returns the Promise resolving from `onErrorFunc`.
+     * @description Overload for asynchronous error handling function.
      */
-    public ok(): Option<T> {
-        if (isOk(this.result)) {
-            return new Option(this.result.value);
-        }
-        return new Option();
-    }
-
+    public orElse(onErrorFunc: (error: E) => Promise<Result<T, E>>): Promise<Result<T, E>>
     /**
-     * Returns the contained `Err` value if the result is `Err`, otherwise returns `undefined`.
-     * The `Err` value is wrapped in an `Error` object for consistent error handling.
-     * @returns An `Option` containing the `Error` object, or an empty `Option` if the result is `Ok`.
+     * @method orElse
+     * @param {(error: E) => Result<T, E> | Promise<Result<T, E>>} onErrorFunc A function that takes the `Err` value and returns a new `Result` (synchronous or asynchronous).
+     * @returns {Result<T, E> | Promise<Result<T, E>>} If this `Result` is `Ok`, returns this `Ok`. Otherwise, returns the result of `onErrorFunc` (or a Promise resolving to this).
+     * @description Calls `onErrorFunc` if the `Result` is `Err`, otherwise returns the `Ok` value.
+     * This is useful for providing a fallback `Result` in case of failure.
      */
-    public err(): Option<Error> {
-        if (isErr(this.result)) {
-            return new Option(new Error(this.result.error));
+    public orElse(onErrorFunc: (error: E) => Result<T, E> | Promise<Result<T, E>>): Result<T, E> | Promise<Result<T, E>> {
+        if (isOk(this.outcome)) {
+            return Ok(this.outcome.value);
         }
-        return new Option();
+        return onErrorFunc(this.outcome.error);
     }
 }
 
+/**
+ * @function isNone
+ * @template T The type of the optional value.
+ * @param {T | undefined} value The value to check.
+ * @returns {boolean} True if the value is `undefined`, false otherwise.
+ * @description Type guard to check if a value is `undefined` (representing "None").
+ */
 const isNone = <T>(value?: T): value is undefined => value === undefined;
+/**
+ * @function isSome
+ * @template T The type of the optional value.
+ * @param {T | undefined} value The value to check.
+ * @returns {boolean} True if the value is not `undefined`, false otherwise.
+ * @description Type guard to check if a value is not `undefined` (representing "Some").
+ */
 const isSome = <T>(value?: T): value is T => value !== undefined;
 
 /**
- * A class providing a functional way to handle optional values,
- * representing either the presence (Some) or absence (None) of a value.
- * Inspired by Rust's `Option` enum, it helps avoid common `null` or `undefined` issues.
+ * @class Option
+ * @template T The type of the contained value.
+ * @description A class that represents an optional value: either a value of type `T`
+ * (`Some`) or no value (`None`). This helps to explicitly handle the
+ * absence of a value, preventing common `null` or `undefined` related bugs.
  */
-class Option<T> {
+export class Option<T> {
 
     /**
-     * Static factory method to create a new `Option` instance from a value or a Promise resolving to a value.
-     * It handles potential rejections during promise resolution by returning a `None` Option.
-     * @param value An optional value or a Promise resolving to an optional value.
-     * @returns A Promise that resolves to an `Option<T>`.
+     * @static
+     * @function From
+     * @template T The type of the contained value.
+     * @param {T | null | void | undefined} input A value that might be null or undefined.
+     * @returns {Result<Option<T>, never>} A `Result` containing an `Option` based on the input. `never` indicates no error possible for synchronous conversion.
+     * @description Overload for synchronous input.
      */
-    public static readonly From = async<T>(value?: T | Promise<T | undefined>): Promise<Option<T>> => {
-        try {
-            const res = await value;
-            return new Option(res);
-        }
-        catch {
-            return new Option<T>();
+    public static From<T>(input?: T | null | void | undefined): Result<Option<T>, never>;
+    /**
+     * @static
+     * @function From
+     * @template T The type of the contained value.
+     * @template E The type of the error if the Promise rejects.
+     * @param {Promise<T | null | void | undefined>} input A Promise resolving to a value that might be null or undefined.
+     * @returns {Promise<Result<Option<T>, E>>} A Promise resolving to a `Result` containing an `Option` based on the input.
+     * @description Overload for asynchronous input.
+     */
+    public static From<T, E>(input: Promise<T | null | void | undefined>): Promise<Result<Option<T>, E>>;
+    /**
+     * @static
+     * @function From
+     * @template T The type of the contained value.
+     * @template E The type of the error if the Promise rejects (only for async).
+     * @param {(T | null | void | undefined) | Promise<T | null | void | undefined>} input A value or a Promise resolving to a value that might be null or undefined.
+     * @returns {Result<Option<T>, never> | Promise<Result<Option<T>, E>>} A `Result` or a Promise resolving to a `Result`, containing an `Option` based on the input.
+     * @description Converts a nullable/undefined value (or a Promise resolving to one)
+     * into an `Option` wrapped in a `Result`. This provides a clean way
+     * to handle values that might be absent, explicitly representing
+     * `null` or `undefined` as `None`.
+     */
+    public static From<T, E>(input?: (T | null | void | undefined) | Promise<T | null | void | undefined>): Result<Option<T>, never> | Promise<Result<Option<T>, E>> {
+        if (input instanceof Promise) {
+            return input
+                .then(result => Ok<Option<T>, E>(new Option(result)))
+                .catch((err: E) => Err<Option<T>, E>(err));
+        } else {
+            return Ok(new Option(input));
         }
     }
 
     private value?: T;
 
     /**
-     * Constructs a new `Option` instance.
-     * @param value The initial value to encapsulate. If undefined, it represents a `None` state.
+     * @constructor
+     * @param {T | null | void} [value] The optional value. If `null` or `undefined`, the Option will be `None`.
+     * @description Creates a new `Option` instance. Use `Some()` or `None()` factory functions for convenience.
      */
-    constructor(value?: T) {
-        this.value = value;
+    constructor(value?: T | null | void) {
+        if (value !== undefined && value !== null) {
+            this.value = value;
+        }
     }
 
     /**
-     * Returns `true` if the `Option` contains a value (`Some`).
-     * @returns `true` if the option is `Some`, `false` otherwise.
+     * @method isSome
+     * @returns {boolean} True if the `Option` contains a value (`Some`), false otherwise.
+     * @description Checks if the `Option` contains a value.
      */
     public isSome(): boolean {
         return isSome(this.value);
     }
 
     /**
-     * Returns `true` if the `Option` does not contain a value (`None`).
-     * @returns `true` if the option is `None`, `false` otherwise.
+     * @method isNone
+     * @returns {boolean} True if the `Option` does not contain a value (`None`), false otherwise.
+     * @description Checks if the `Option` does not contain a value.
      */
     public isNone(): boolean {
         return isNone(this.value);
     }
 
     /**
-      * Returns `true` if the `Option` is `Some` and the value inside of it satisfies the predicate `func`.
-      * @param func The predicate function to test the `Some` value.
-      * @returns `true` if the option is `Some` and the predicate returns `true`, `false` otherwise.
-      */
-    public isSomeAnd(func: (value: T) => boolean): boolean {
+     * @method isSomeAnd
+     * @param {(value: T) => boolean} func A predicate function to apply if the option is `Some`.
+     * @returns {boolean} True if the option is `Some` and the predicate returns true, false otherwise.
+     * @description Overload for synchronous predicate.
+     */
+    public isSomeAnd(func: (value: T) => boolean): boolean
+    /**
+     * @method isSomeAnd
+     * @param {(value: T) => Promise<boolean>} func A predicate function to apply if the option is `Some`.
+     * @returns {Promise<boolean>} A Promise resolving to true if the option is `Some` and the predicate returns true, false otherwise.
+     * @description Overload for asynchronous predicate.
+     */
+    public isSomeAnd(func: (value: T) => Promise<boolean>): Promise<boolean>
+    /**
+     * @method isSomeAnd
+     * @param {(value: T) => boolean | Promise<boolean>} func A predicate function to apply if the option is `Some`.
+     * @returns {boolean | Promise<boolean>} True if the option is `Some` and the predicate returns true, false otherwise (or a Promise resolving to this).
+     * @description Checks if the `Option` is `Some` and the contained value satisfies the given predicate.
+     */
+    public isSomeAnd(func: (value: T) => boolean | Promise<boolean>): boolean | Promise<boolean> {
         if (isSome(this.value)) {
             return func(this.value);
         }
@@ -410,22 +706,11 @@ class Option<T> {
     }
 
     /**
-    * Returns `true` if the `Option` is `None` and the predicate `func` returns `true`.
-    * @param func The predicate function to test the `None` state.
-    * @returns `true` if the option is `None` and the predicate returns `true`, `false` otherwise.
-    */
-    public isNoneAnd(func: () => boolean): boolean {
-        if (isNone(this.value)) {
-            return func();
-        }
-        return false;
-    }
-
-    /**
-     * Returns the contained `Some` value, or throws an error if the `Option` is `None`.
-     * Use with caution, as this can lead to unhandled exceptions.
-     * @returns The contained `Some` value.
-     * @throws An `Error` if the option is `None`.
+     * @method unwrap
+     * @returns {T} The contained value.
+     * @throws {Error} If the `Option` is `None`, an error is thrown.
+     * @description Returns the contained `Some` value.
+     * Throws an `Error` if the value is `None`. Use with caution.
      */
     public unwrap(): T {
         if (isSome(this.value)) {
@@ -435,12 +720,12 @@ class Option<T> {
     }
 
     /**
-     * Returns the contained `Some` value, or throws an error with the provided message
-     * if the `Option` is `None`.
-     * Use with caution, as this can lead to unhandled exceptions.
-     * @param message The message to use if the option is `None`.
-     * @returns The contained `Some` value.
-     * @throws An `Error` with the specified message if the option is `None`.
+     * @method expect
+     * @param {string} message The error message to use if the `Option` is `None`.
+     * @returns {T} The contained value.
+     * @throws {Error} If the `Option` is `None`, an error is thrown with the provided message.
+     * @description Returns the contained `Some` value.
+     * Throws an `Error` with a custom message if the value is `None`. Use with caution.
      */
     public expect(message: string): T {
         if (isSome(this.value)) {
@@ -450,9 +735,10 @@ class Option<T> {
     }
 
     /**
-     * Returns the contained `Some` value or a provided default value if the `Option` is `None`.
-     * @param defaultValue The default value to return if the option is `None`.
-     * @returns The contained `Some` value or the default value.
+     * @method unwrapOr
+     * @param {T} _default The default value to return if the `Option` is `None`.
+     * @returns {T} The contained value if `Some`, otherwise the provided `_default`.
+     * @description Returns the contained `Some` value or a provided default.
      */
     public unwrapOr(_default: T): T {
         if (isSome(this.value)) {
@@ -462,11 +748,27 @@ class Option<T> {
     }
 
     /**
-     * Returns the contained `Some` value or computes it from a closure if the `Option` is `None`.
-     * @param onNoneFunc The function to call if the option is `None`, which computes the default value.
-     * @returns The contained `Some` value or the result of `onNoneFunc`.
+     * @method unwrapOrElse
+     * @param {() => T} func A function that produces a default value if the `Option` is `None`.
+     * @returns {T} The contained value if `Some`, otherwise the result of `func`.
+     * @description Overload for synchronous default value function.
      */
-    public unwrapOrElse(func: () => T): T {
+    public unwrapOrElse(func: () => T): T
+    /**
+     * @method unwrapOrElse
+     * @param {() => Promise<T>} func A function that produces a Promise resolving to a default value if the `Option` is `None`.
+     * @returns {Promise<T>} A Promise resolving to the contained value if `Some`, otherwise the result of `func`.
+     * @description Overload for asynchronous default value function.
+     */
+    public unwrapOrElse(func: () => Promise<T>): Promise<T>
+    /**
+     * @method unwrapOrElse
+     * @param {() => T | Promise<T>} func A function that produces a default value or a Promise resolving to one if the `Option` is `None`.
+     * @returns {T | Promise<T>} The contained value if `Some`, otherwise the result of `func` (or a Promise resolving to this).
+     * @description Returns the contained `Some` value or computes a default from a
+     * function argument if the value is `None`.
+     */
+    public unwrapOrElse(func: () => T | Promise<T>): T | Promise<T> {
         if (isSome(this.value)) {
             return this.value;
         }
@@ -474,35 +776,77 @@ class Option<T> {
     }
 
     /**
-     * Maps a `Some` value to a new `Some` value by applying a function to the contained value,
-     * or returns `None` if the `Option` is `None`.
-     * @param transform The function to apply to the `Some` value.
-     * @returns A new `Option<U>` with the transformed value or `None`.
+     * @method map
+     * @template U The type of the new value.
+     * @param {(value: T) => U} func A function to apply to the contained `Some` value.
+     * @returns {Option<U>} A new `Option` with the transformed value if `Some`, otherwise `None`.
+     * @description Overload for synchronous transformation.
      */
-    public map<U>(func: (value: T) => U): Option<U> {
+    public map<U>(func: (value: T) => U): Option<U>
+    /**
+     * @method map
+     * @template U The type of the new value.
+     * @param {(value: T) => Promise<U>} func A function to apply to the contained `Some` value, returning a Promise.
+     * @returns {Promise<Option<U>>} A Promise resolving to a new `Option` with the transformed value if `Some`, otherwise `None`.
+     * @description Overload for asynchronous transformation.
+     */
+    public map<U>(func: (value: T) => Promise<U>): Promise<Option<U>>
+    /**
+     * @method map
+     * @template U The type of the new value.
+     * @param {(value: T) => U | Promise<U>} func A function to apply to the contained `Some` value, which can be synchronous or asynchronous.
+     * @returns {Option<U> | Promise<Option<U>>} A new `Option` or a Promise resolving to a new `Option` with the transformed value if `Some`, otherwise `None`.
+     * @description Maps an `Option<T>` to `Option<U>` by applying a function to a
+     * contained `Some` value, leaving a `None` value untouched.
+     */
+    public map<U>(func: (value: T) => U | Promise<U>): Option<U> | Promise<Option<U>> {
         if (isSome(this.value)) {
-            return new Option(func(this.value));
+            const result = func(this.value);
+            if (result instanceof Promise) {
+                return result.then((res) => new Option(res));
+            }
+            return new Option(result);
         }
-        return new Option<U>(undefined);
+        return None();
     }
 
     /**
-     * Calls `transform` if the `Option` is `Some`, otherwise returns `None`.
-     * This is a monadic bind operation, useful for chaining operations that might return an `Option`.
-     * @param transform The function to call with the `Some` value, which returns a new `Option`.
-     * @returns A new `Option` from the `transform` function or `None`.
+     * @method andThen
+     * @template U The type of the new `Option`'s value.
+     * @param {(value: T) => Option<U>} transform A function that takes the `Some` value and returns a new `Option`.
+     * @returns {Option<U>} The result of applying `transform` if `Some`, otherwise `None`.
+     * @description Overload for synchronous transformation.
      */
-    public andThen<U>(func: (value: T) => Option<U>): Option<U> {
+    public andThen<U>(transform: (value: T) => Option<U>): Option<U>;
+    /**
+     * @method andThen
+     * @template U The type of the new `Option`'s value.
+     * @param {(value: T) => Promise<Option<U>>} transform A function that takes the `Some` value and returns a Promise resolving to a new `Option`.
+     * @returns {Promise<Option<U>>} A Promise resolving to the result of applying `transform` if `Some`, otherwise `None`.
+     * @description Overload for asynchronous transformation.
+     */
+    public andThen<U>(transform: (value: T) => Promise<Option<U>>): Promise<Option<U>>;
+    /**
+     * @method andThen
+     * @template U The type of the new `Option`'s value.
+     * @param {(value: T) => Option<U> | Promise<Option<U>>} transform A function that takes the `Some` value and returns a new `Option` (synchronous or asynchronous).
+     * @returns {Option<U> | Promise<Option<U>>} The result of applying `transform` if `Some`, otherwise `None`.
+     * @description Calls `transform` if the `Option` is `Some`, otherwise returns `None`.
+     * This is useful for chaining `Option`-returning functions.
+     */
+    public andThen<U>(transform: (value: T) => Option<U> | Promise<Option<U>>): Option<U> | Promise<Option<U>> {
         if (isSome(this.value)) {
-            return func(this.value);
+            return transform(this.value);
         }
-        return new Option<U>(undefined);
+        return None();
     }
 
     /**
-     * Returns `other` if the `Option` is `Some`, otherwise returns `None`.
-     * @param other The other `Option` to return if `this` is `Some`.
-     * @returns `other` if `this` is `Some`, otherwise `None`.
+     * @method and
+     * @template U The type of the other `Option`'s value.
+     * @param {Option<U>} other Another `Option` to combine with.
+     * @returns {Option<U>} If this `Option` is `Some`, returns `other`. Otherwise, returns `None`.
+     * @description Returns `other` if the `Option` is `Some`, otherwise returns `None`.
      */
     public and<U>(other: Option<U>): Option<U> {
         if (isSome(this.value)) {
@@ -512,9 +856,10 @@ class Option<T> {
     }
 
     /**
-     * Returns `this` if the `Option` is `Some`, otherwise returns `other`.
-     * @param other The other `Option` to return if `this` is `None`.
-     * @returns `this` if `Some`, otherwise `other`.
+     * @method or
+     * @param {Option<T>} other Another `Option` to combine with.
+     * @returns {Option<T>} If this `Option` is `Some`, returns this `Some`. Otherwise, returns `other`.
+     * @description Returns the `Option` if it is `Some`, otherwise returns `other`.
      */
     public or(other: Option<T>): Option<T> {
         if (isSome(this.value)) {
@@ -524,10 +869,10 @@ class Option<T> {
     }
 
     /**
-     * Returns `Some` if exactly one of `this` or `other` is `Some`, otherwise returns `None`.
-     * This is an exclusive OR operation for `Option` types.
-     * @param other The other `Option` to compare with.
-     * @returns An `Option` containing the value from the `Some` option if only one is `Some`, otherwise `None`.
+     * @method xor
+     * @param {Option<T>} other Another `Option` to combine with.
+     * @returns {Option<T>} Returns `Some` if exactly one of the `Option`s is `Some`, otherwise returns `None`.
+     * @description Returns `Some` if exactly one of `this` or `other` is `Some`, otherwise returns `None`.
      */
     public xor(other: Option<T>): Option<T> {
         const some = isSome(this.value);
@@ -541,9 +886,9 @@ class Option<T> {
     }
 
     /**
-     * Takes the value out of the `Option`, leaving `None` in its place.
-     * This effectively consumes the value, making the current `Option` `None`.
-     * @returns A new `Option` containing the value that was previously in `this`, or `None`.
+     * @method take
+     * @returns {Option<T>} An `Option` containing the value that was in `this`, and sets `this` to `None`.
+     * @description Takes the value out of the `Option`, leaving a `None` in its place.
      */
     public take(): Option<T> {
         const option = new Option(this.value);
@@ -552,109 +897,178 @@ class Option<T> {
     }
 
     /**
-     * Converts the `Option` into a `SafeResult<T>`.
-     * If the `Option` is `Some`, it returns `OkResult<T>`.
-     * If the `Option` is `None`, it returns `ErrResult` with the provided error.
-     * @param err The `Error` object to use if the option is `None`.
-     * @returns A `SafeResult<T>` representing either the `Some` value or the provided error.
+     * @method okOr
+     * @template U The type of the error value for the `Result`.
+     * @param {U} error The error value to use if the `Option` is `None`.
+     * @returns {Result<T, U>} A `Result` containing the `Some` value if present, otherwise an `Err` with the provided error.
+     * @description Converts the `Option` into a `Result`, mapping `Some(v)` to `Ok(v)`
+     * and `None` to `Err(error)`.
      */
-    public okOr(err: Error): SafeResult<T> {
+    public okOr<U>(error: U): Result<T, U> {
         const value = this.value;
         if (isSome(value)) {
-            return new SafeResult({ value });
+            return new Result({ value });
         } else {
-            const error = err.message;
-            return new SafeResult({ error });
+            return new Result({ error });
         }
     }
 
     /**
-     * Converts the `Option` into a `SafeResult<T>`.
-     * If the `Option` is `Some`, it returns `OkResult<T>`.
-     * If the `Option` is `None`, it returns `ErrResult` with an error computed by the provided closure.
-     * @param onErrorFunc The function to call if the option is `None`, which computes the `Error`.
-     * @returns A `SafeResult<T>` representing either the `Some` value or the computed error.
+     * @method okOrElse
+     * @template U The type of the error value for the `Result`.
+     * @param {() => U} func A function that produces an error value if the `Option` is `None`.
+     * @returns {Result<T, U>} A `Result` containing the `Some` value if present, otherwise an `Err` with the result of `func`.
+     * @description Converts the `Option` into a `Result`, mapping `Some(v)` to `Ok(v)`
+     * and `None` to `Err(func())`.
      */
-    public okOrElse(func: () => Error): SafeResult<T> {
+    public okOrElse<U>(func: () => U): Result<T, U> {
         const value = this.value;
         if (isSome(value)) {
-            return new SafeResult({ value });
+            return new Result({ value });
         } else {
-            const error = func().message;
-            return new SafeResult({ error });
+            const error = func();
+            return new Result({ error });
         }
     }
 
 }
 
 /**
- * Creates a new `Option` instance that contains a value (`Some`).
- * This is a convenience function for encapsulating a present value within an `Option`.
- * It's particularly useful when you explicitly want to indicate the presence of a non-null or non-undefined value.
- * @param value The value to be wrapped within the `Option`.
- * @returns An `Option<T>` instance representing the "Some" state with the provided value.
+ * @function Some
+ * @template T The type of the value.
+ * @param {T} value The value to wrap in an `Option`.
+ * @returns {Option<T>} A new `Option` instance representing a present value.
+ * @description Creates a new `Option` instance containing a value.
  */
-export const Some = <T>(value?: T) => new Option<T>(value);
+export const Some = <T>(value: T): Option<T> => new Option<T>(value);
 
 /**
- * Creates a new `Option` instance that represents the absence of a value (`None`).
- * This function serves as a straightforward way to create an `Option` indicating that no value is present.
- * It's often used to explicitly handle cases where a value might be missing,
- * avoiding the need for `null` or `undefined` checks.
- * @returns An `Option<T>` instance representing the "None" state.
+ * @function None
+ * @template T The type of the value (implicitly undefined).
+ * @returns {Option<T>} A new `Option` instance representing the absence of a value.
+ * @description Creates a new `Option` instance indicating no value is present.
  */
-export const None = <T>() => new Option<T>();
-
-const isOptionMatch = <T>(o: Option<T> | SafeResult<T>): o is Option<T> => o instanceof Option;
-const isResultMatch = <T>(o: Option<T> | SafeResult<T>): o is SafeResult<T> => o instanceof SafeResult;
+export const None = <T>(): Option<T> => new Option<T>();
 
 /**
- * Performs pattern matching on `Option` or `SafeResult` types.
- * It executes the appropriate callback function based on whether the input is `Some`/`Ok` or `None`/`Err`.
- * This function effectively converts an `Option` or `SafeResult` into a `GoifyResult`,
- * which is a common pattern for handling errors in a Go-like style (value, error).
- *
- * If the input is an `Option<T>`:
- * - If it's `Some(value)`, the `value` is returned as the successful result.
- * - If it's `None`, an `Error` indicating "None" is returned as the error result.
- *
- * If the input is a `SafeResult<T>`:
- * - If it's `Ok(value)`, the `value` is returned as the successful result.
- * - If it's `Err(error)`, the underlying `error` is returned as the error result.
- *
- * @param input The `Option` or `SafeResult` instance to match against.
- * @returns A `GoifyResult<T, Error>` containing either the successful value or an `Error`.
+ * @template T The type of the value in the `Option`.
+ * @template R The return type of the match.
+ * @property {(value: T) => R} Some Function to execute if the `Option` is `Some`.
+ * @property {() => R} None Function to execute if the `Option` is `None`.
+ * @description Defines the structure for a matcher object used with `Option` types.
  */
-export const match = <T>(input: Option<T> | SafeResult<T>):
-    GoifyResult<T, Error> =>
-    goifySync(() => {
-        if (isOptionMatch(input)) {
-            return input.expect("Option is None");
-        }
-        else if (isResultMatch(input)) {
-            if (input.isOk()) {
-                return input.unwrap();
-            }
-            throw input.unwrapErr();
-        }
-        throw new Error("Unhandled input type for match function.");
-    });
+export type OptionMatcher<T, R> = {
+    Some: (value: T) => R;
+    None: () => R;
+};
 
-export const matchAsync = async<T>(input: Promise<Option<T> | SafeResult<T>>):
-    Promise<GoifyResult<T, Error>> =>
-    goify(async () => {
-        const result = await input;
-        if (isOptionMatch(result)) {
-            return result.expect("Option is None");
-        }
-        else if (isResultMatch(result)) {
-            if (result.isOk()) {
-                return result.unwrap();
-            }
-            throw result.unwrapErr();
-        }
+/**
+ * @template T The type of the successful value in the `Result`.
+ * @template E The type of the error value in the `Result`.
+ * @template R The return type of the match.
+ * @property {(value: T) => R} Ok Function to execute if the `Result` is `Ok`.
+ * @property {(err: E) => R} Err Function to execute if the `Result` is `Err`.
+ * @description Defines the structure for a matcher object used with `Result` types.
+ */
+export type ResultMatcher<T, E, R> = {
+    Ok: (value: T) => R;
+    Err: (err: E) => R;
+};
 
-        throw new Error("Unhandled input type for match function.");
-    });
+/**
+ * @function isOptionMatch
+ * @template T
+ * @template E
+ * @param {Option<T> | Result<T, E>} o The input to check.
+ * @returns {boolean} True if the input is an `Option` instance, false otherwise.
+ * @description Type guard to check if an input is an instance of `Option`.
+ */
+const isOptionMatch = <T, E>(o: Option<T> | Result<T, E>): o is Option<T> => o instanceof Option;
+/**
+ * @function isResultMatch
+ * @template T
+ * @template E
+ * @param {Option<T> | Result<T, E>} o The input to check.
+ * @returns {boolean} True if the input is a `Result` instance, false otherwise.
+ * @description Type guard to check if an input is an instance of `Result`.
+ */
+const isResultMatch = <T, E>(o: Option<T> | Result<T, E>): o is Result<T, E> => o instanceof Result;
 
-export type SafeOption<T> = InstanceType<typeof Option<T>>
+/**
+ * @function isOptionMatcher
+ * @template T
+ * @template E
+ * @template R
+ * @param {OptionMatcher<T, R> | ResultMatcher<T, E, R>} m The matcher to check.
+ * @returns {boolean} True if the matcher is an `OptionMatcher`, false otherwise.
+ * @description Type guard to check if a matcher object is an `OptionMatcher`.
+ */
+const isOptionMatcher = <T, E, R>(m: OptionMatcher<T, R> | ResultMatcher<T, E, R>): m is OptionMatcher<T, R> => "Some" in m && "None" in m;
+/**
+ * @function isResultMatcher
+ * @template T
+ * @template E
+ * @template R
+ * @param {OptionMatcher<T, R> | ResultMatcher<T, E, R>} m The matcher to check.
+ * @returns {boolean} True if the matcher is a `ResultMatcher`, false otherwise.
+ * @description Type guard to check if a matcher object is a `ResultMatcher`.
+ */
+const isResultMatcher = <T, E, R>(m: OptionMatcher<T, R> | ResultMatcher<T, E, R>): m is ResultMatcher<T, E, R> => "Ok" in m && "Err" in m;
+
+
+/**
+ * @function match
+ * @template T The type of the value in the `Option`.
+ * @template R The return type of the match.
+ * @param {Option<T>} input The `Option` to match against.
+ * @param {OptionMatcher<T, R>} matcher The matcher object with `Some` and `None` functions.
+ * @returns {R} The result of the matched function.
+ * @throws {Error} If the input type does not align with the provided matcher.
+ * @description Overload for matching `Option` types.
+ */
+export function match<T, R>(input: Option<T>, matcher: OptionMatcher<T, R>): R;
+/**
+ * @function match
+ * @template T The type of the successful value in the `Result`.
+ * @template E The type of the error value in the `Result`.
+ * @template R The return type of the match.
+ * @param {Result<T, E>} input The `Result` to match against.
+ * @param {ResultMatcher<T, E, R>} matcher The matcher object with `Ok` and `Err` functions.
+ * @returns {R} The result of the matched function.
+ * @throws {Error} If the input type does not align with the provided matcher.
+ * @description Overload for matching `Result` types.
+ */
+export function match<T, E, R>(input: Result<T, E>, matcher: ResultMatcher<T, E, R>): R;
+/**
+ * @function match
+ * @template T The type of the value (for Option) or successful value (for Result).
+ * @template E The type of the error value (for Result).
+ * @template R The return type of the match.
+ * @param {Option<T> | Result<T, E>} input The `Option` or `Result` to match against.
+ * @param {OptionMatcher<T, R> | ResultMatcher<T, E, R>} matcher The matcher object with appropriate functions (`Some`/`None` or `Ok`/`Err`).
+ * @returns {R} The result of the matched function.
+ * @throws {Error} If the input type does not align with the provided matcher, or a required handler function is missing.
+ * @description Provides a pattern matching mechanism for `Option` and `Result` types.
+ * It allows you to explicitly handle `Some`/`None` or `Ok`/`Err` cases
+ * in a clear and type-safe manner.
+ */
+export function match<T, E, R>(input: Option<T> | Result<T, E>, matcher: OptionMatcher<T, R> | ResultMatcher<T, E, R>): R {
+
+    if (isOptionMatch(input) && isOptionMatcher(matcher)) {
+        const { Some, None } = matcher;
+        if (input.isSome()) {
+            return Some(input.unwrap());
+        }
+        return None();
+    }
+
+    if (isResultMatch(input) && isResultMatcher(matcher)) {
+        const { Ok, Err } = matcher;
+        if (input.isOk()) {
+            return Ok(input.unwrap());
+        }
+        return Err(input.unwrapErr());
+    }
+
+    throw new Error('MatchError: Input value type does not align with the provided handler, or a required handler function (e.g., Some, None, Ok, Err) is missing.');
+}
