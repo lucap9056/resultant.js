@@ -178,7 +178,7 @@ const isErr = <T, E>(outcome: Outcome<T, E> | SerializableOutcome<T>): outcome i
  * @returns {Result<T, E>} A new `Result` instance representing a successful outcome.
  * @description Creates a new `Result` instance indicating a successful operation.
  */
-export const Ok = <T, E>(value: T) => new Result<T, E>({ value });
+export const Ok = <T, E>(value: T): Result<T, E> => new Result<T, E>({ value });
 /**
  * @function Err
  * @template T The type of the successful value.
@@ -187,7 +187,7 @@ export const Ok = <T, E>(value: T) => new Result<T, E>({ value });
  * @returns {Result<T, E>} A new `Result` instance representing a failed outcome.
  * @description Creates a new `Result` instance indicating a failed operation.
  */
-export const Err = <T, E>(error: E) => new Result<T, E>({ error });
+export const Err = <T, E>(error: E): Result<T, E> => new Result<T, E>({ error });
 
 /**
  * @class Result
@@ -226,16 +226,16 @@ export class Result<T, E> {
      * into a `Result` type. It specifically transforms string errors
      * from `SerializableOutcome` into `Error` objects for the `Result`.
      */
-    public static From<T>(input: SerializableOutcome<T> | Promise<SerializableOutcome<T>>) {
+    public static From<T>(input: SerializableOutcome<T> | Promise<SerializableOutcome<T>>): Result<T, Error> | Promise<Result<T, Error>> {
         if (input instanceof Promise) {
             return input.then(result => {
+
                 if (isOk(result)) {
-                    const value = result.value;
-                    return Ok(value);
+                    return Ok<T, Error>(result.value);
                 } else {
-                    return Err(new Error(result.error));
+                    return Err<T, Error>(new Error(result.error));
                 }
-            }).catch(err => Err(new Error(convertErrorToString(err))));
+            }).catch(err => Err<T, Error>(new Error(convertErrorToString(err))));
         } else {
 
             if (isOk(input)) {
