@@ -26,7 +26,7 @@ type OutcomeErr<T> = { error: T };
  * serialized or contains a string error. This is useful for
  * API responses or logging where errors need to be stringified.
  */
-export type SerializableOutcome<T> = OutcomeOk<T> | OutcomeErr<string>;
+export type SerializableOutcome<T> = (OutcomeOk<T> | OutcomeErr<string>) & { ok: boolean };
 
 /**
  * @template T The type of the successful value.
@@ -100,12 +100,12 @@ export function buildSerializableOutcome<T>(operation: () => Promise<T> | T): Pr
     try {
         const result = operation();
         if (result instanceof Promise) {
-            return result.then((value) => ({ value })).catch((err) => ({ error: convertErrorToString(err) }));
+            return result.then((value) => ({ value, ok: true })).catch((err) => ({ error: convertErrorToString(err), ok: false }));
         }
-        return { value: result };
+        return { value: result, ok: true };
     } catch (err) {
         const error = convertErrorToString(err);
-        return { error };
+        return { error, ok: false };
     }
 };
 
@@ -158,7 +158,7 @@ export function buildResult<T, E = Error>(operation: () => Promise<T> | T): Prom
  * @returns {boolean} True if the outcome is `OutcomeOk`, false otherwise.
  * @description Type guard to check if an `Outcome` is a successful `OutcomeOk`.
  */
-const isOk = <T, E>(outcome: Outcome<T, E>): outcome is OutcomeOk<T> => 'value' in outcome;
+const isOk = <T, E>(outcome: Outcome<T, E> | SerializableOutcome<T>): outcome is OutcomeOk<T> => 'value' in outcome || ('ok' in outcome && outcome.ok === true);
 
 /**
  * @function isErr
@@ -168,7 +168,7 @@ const isOk = <T, E>(outcome: Outcome<T, E>): outcome is OutcomeOk<T> => 'value' 
  * @returns {boolean} True if the outcome is `OutcomeErr`, false otherwise.
  * @description Type guard to check if an `Outcome` is a failed `OutcomeErr`.
  */
-const isErr = <T, E>(outcome: Outcome<T, E>): outcome is OutcomeErr<E> => 'error' in outcome;
+const isErr = <T, E>(outcome: Outcome<T, E> | SerializableOutcome<T>): outcome is OutcomeErr<E> => 'error' in outcome || ('ok' in outcome && outcome.ok === false);
 
 /**
  * @function Ok
