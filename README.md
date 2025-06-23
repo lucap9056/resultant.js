@@ -2,37 +2,33 @@
 
 `resultant.js` is a JavaScript/TypeScript library designed to bring Go-style error handling (`goify`) and Rust-style `Result` and `Option` enums (`rustify`) into the JavaScript ecosystem. It provides a more expressive, safer, and functional approach to handling errors and optional values, helping to reduce uncaught exceptions and `null`/`undefined`-related bugs.
 
-
 ----
 ## Core Concepts
 
 ### Go-Style Error Handling (`goify`)
 
 Inspired by Go's multi-return error handling pattern, the `goify` functions return a tuple `[result, error]`, where `result` is the successful return value of the operation and `error` is an error object if the operation fails. This allows the caller to explicitly handle both success and failure scenarios without relying on `try-catch` blocks.
+
 ### Rust-Style Error Handling (`rustify`)
 
-Drawing inspiration from Rust's `Result<T, E>` and `Option<T>` enums, the `rustify` module provides `SafeResult<T>` and `Option<T>` classes. These classes offer a rich set of methods to safely handle operations that might succeed or fail, and values that might be present or absent. This mechanism encourages explicit error handling and null-checking, thereby improving code robustness and readability.
-
+Drawing inspiration from Rust's `Result<T, E>` and `Option<T>` enums, the `rustify` module provides `Result<T, E>` and `Option<T>` classes. These classes offer a rich set of methods to safely handle operations that might succeed or fail, and values that might be present or absent. This mechanism encourages explicit error handling and null-checking, thereby improving code robustness and readability.
 
 ----
 ## Installation
 
 You can install `resultant.js` using npm or yarn:
-Bash
-```
+
+```bash
 npm install resultant.js
 # or
 yarn add resultant.js
 ```
-
-
 ----
 ## Usage
 
 ### Go-Style Error Handling (goify)
 
 Use the `goify` and `goifySync` functions to wrap your asynchronous or synchronous operations.
-TypeScript
 ```
 import { goify, goifySync } from 'resultant.js/goify';
 
@@ -105,9 +101,8 @@ handleSyncOperation();
 #### SafeResult&lt;T>
 
 `SafeResult<T>` is used to represent an operation that may either succeed (`Ok`) or fail (`Err`).
-TypeScript
 ```
-import { buildSafeResult, SafeResult } from 'resultant.js/rustify';
+import { buildResult, Ok, Err, Result } from 'resultant.js/rustify';
 
 // Simulate an async operation that might succeed or fail
 const performDatabaseQuery = async (userId: string): Promise<string> => {
@@ -125,7 +120,7 @@ const performDatabaseQuery = async (userId: string): Promise<string> => {
 };
 
 async function processUser(userId: string) {
-    const result: SafeResult<string> = await buildSafeResult(() => performDatabaseQuery(userId));
+    const result: Result<string, Error> = await buildResult(() => performDatabaseQuery(userId));
 
     if (result.isOk()) {
         console.log(`Query successful: ${result.unwrap()}`);
@@ -141,10 +136,10 @@ async function processUser(userId: string) {
     console.log(`Processed data: ${processedData}`);
 
     // Chaining operations with andThen
-    const chainedResult = await buildSafeResult(() => performDatabaseQuery("admin"))
+    const chainedResult = await buildResult(() => performDatabaseQuery("admin"))
         .andThen(value => {
             console.log(`First step successful, value: ${value}`);
-            return new SafeResult({ value: `Transformed: ${value}` }); // Return a new SafeResult
+            return Ok(`Transformed: ${value}`); // Return a new Result
         });
 
     if (chainedResult.isOk()) {
@@ -161,11 +156,10 @@ processUser("admin");
 #### Option&lt;T>
 
 `Option<T>` is used to represent a value that may or may not be present (`Some` or `None`). This helps eliminate the need for `null` or `undefined` checks.
-TypeScript
 ```
-import { Some, None, SafeOption } from 'resultant.js/rustify';
+import { Some, None, Option } from 'resultant.js/rustify';
 
-function getUserName(userId: number): SafeOption<string> {
+function getUserName(userId: number): Option<string> {
     const users: { [key: number]: string } = {
         1: "John Doe",
         2: "Jane Smith",
@@ -208,74 +202,40 @@ displayUserName(1);
 displayUserName(4);
 displayUserName(2);
 ```
-#### `match` Functions
-
-The `match` function allows you to convert an `Option` or `SafeResult` into a `GoifyResult` (`[value, error]`) when you need to switch to Go-style error handling.
-TypeScript
+#### `match` Function
+The `match` function provides a pattern matching mechanism for `Option` and `Result` types. It allows you to explicitly handle `Some`/`None` or `Ok`/`Err` cases in a clear and type-safe manner.
 ```
-import { match, matchAsync, SafeResult, Option, Some, None, buildSafeResult } from 'resultant.js/rustify';
+import { match, Result, Option, Some, None, buildResult } from 'resultant.js/rustify';
 
-// Using match with SafeResult
+// Using match with Result
 async function processResult(shouldSucceed: boolean) {
-    const myResult = await buildSafeResult(async () => {
+    const myResult = await buildResult(async () => {
         if (shouldSucceed) {
             return "Operation successful!";
         }
         throw new Error("Operation failed!");
     });
 
-    const [value, error] = match(myResult);
-
-    if (error) {
-        console.error(`Match (Result) error: ${error.message}`);
-    } else {
-        console.log(`Match (Result) success: ${value}`);
-    }
+    const output = match(myResult, {
+        Ok: (value) => `Match (Result) success: ${value}`,
+        Err: (error) => `Match (Result) error: ${error.message}`,
+    });
+    console.log(output);
 }
 
 // Using match with Option
 function processOption(hasValue: boolean) {
     const myOption = hasValue ? Some("Option has a value") : None<string>();
 
-    const [value, error] = match(myOption);
-
-    if (error) {
-        console.error(`Match (Option) error: ${error.message}`);
-    } else {
-        console.log(`Match (Option) success: ${value}`);
-    }
-}
-
-// Using matchAsync with Promise<Option | SafeResult>
-async function processAsyncMatch(type: 'option' | 'result', succeed: boolean) {
-    let promiseToMatch: Promise<Option<string> | SafeResult<string>>;
-
-    if (type === 'option') {
-        promiseToMatch = Promise.resolve(succeed ? Some("Option value from Promise") : None<string>());
-    } else {
-        promiseToMatch = buildSafeResult(async () => {
-            if (succeed) {
-                return "SafeResult value from Promise";
-            }
-            throw new Error("SafeResult error from Promise");
-        });
-    }
-
-    const [value, error] = await matchAsync(promiseToMatch);
-
-    if (error) {
-        console.error(`Match Async (${type}) error: ${error.message}`);
-    } else {
-        console.log(`Match Async (${type}) success: ${value}`);
-    }
+    const output = match(myOption, {
+        Some: (value) => `Match (Option) success: ${value}`,
+        None: () => `Match (Option) no value.`,
+    });
+    console.log(output);
 }
 
 processResult(true);
 processResult(false);
 processOption(true);
 processOption(false);
-processAsyncMatch('option', true);
-processAsyncMatch('option', false);
-processAsyncMatch('result', true);
-processAsyncMatch('result', false);
 ```
