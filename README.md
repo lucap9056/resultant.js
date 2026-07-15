@@ -11,7 +11,7 @@ Inspired by Go's multi-return error handling pattern, the `goify` functions retu
 
 ### Rust-Style Error Handling (`rustify`)
 
-Drawing inspiration from Rust's `Result<T, E>` and `Option<T>` enums, the `rustify` module provides `Result<T, E>` and `Option<T>` classes. These classes offer a rich set of methods to safely handle operations that might succeed or fail, and values that might be present or absent. This mechanism encourages explicit error handling and null-checking, thereby improving code robustness and readability.
+Modeled after Rust's `Result<T, E>` and `Option<T>` enums, the `rustify` module replicates them in TypeScript as `Result<OK, ERR>` and `Option<SOME>` classes. These classes offer a rich set of methods to safely handle operations that might succeed or fail, and values that might be present or absent. This mechanism encourages explicit error handling and null-checking, thereby improving code robustness and readability.
 
 ----
 ## Installation
@@ -97,10 +97,10 @@ handleSyncOperation();
 ----
 ### Rust-Style Error Handling (rustify)
 
-`SafeResult<T>` and `Option<T>` provide a richer, more functional API for handling fallible operations and optional values.
-#### SafeResult&lt;T>
+`Result<OK, ERR>` and `Option<SOME>` provide a richer, more functional API for handling fallible operations and optional values.
+#### Result&lt;OK, ERR>
 
-`SafeResult<T>` is used to represent an operation that may either succeed (`Ok`) or fail (`Err`).
+`Result<OK, ERR>` is used to represent an operation that may either succeed (`Ok`) or fail (`Err`).
 ```
 import { buildResult, Ok, Err, Result } from 'resultant.js/rustify';
 
@@ -153,9 +153,9 @@ processUser("user123");
 processUser("invalid");
 processUser("admin");
 ```
-#### Option&lt;T>
+#### Option&lt;SOME>
 
-`Option<T>` is used to represent a value that may or may not be present (`Some` or `None`). This helps eliminate the need for `null` or `undefined` checks.
+`Option<SOME>` is used to represent a value that may or may not be present (`Some` or `None`). This helps eliminate the need for `null` or `undefined` checks.
 ```
 import { Some, None, Option } from 'resultant.js/rustify';
 
@@ -239,3 +239,47 @@ processResult(false);
 processOption(true);
 processOption(false);
 ```
+#### Async-Only Counterparts
+Several `rustify` functions and methods work with both sync and async code, returning a plain value or a `Promise` depending on what you pass in — either by accepting a callback that may be sync or async (e.g. `buildResult`, `Result#map`, `Option#andThen`), or by accepting a plain value vs. a `Promise` of one (e.g. `Result.From`, `Option.From`, `match`). Each of these also has a dedicated `XxxAsync` counterpart that's always async, so `await` calls type-check without relying on overload inference.
+```
+import { buildResultAsync, matchAsync } from 'resultant.js/rustify';
+
+async function fetchUser(id: string) {
+    const result = await buildResultAsync(async () => {
+        if (id === "missing") {
+            throw new Error("User not found");
+        }
+        return { id, name: "Ada Lovelace" };
+    });
+
+    const mapped = await result.mapAsync(async (user) => `Hello, ${user.name}!`);
+    const greeting = await mapped.unwrapOrElseAsync(async () => "Hello, stranger!");
+    console.log(greeting);
+
+    return matchAsync(Promise.resolve(result), {
+        Ok: (user) => `Found ${user.name}`,
+        Err: (error) => `Failed: ${error.message}`,
+    });
+}
+
+fetchUser("42");
+fetchUser("missing");
+```
+
+| Hybrid (sync or async) | Async-only |
+| --- | --- |
+| `buildSerializableOutcome` | `buildSerializableOutcomeAsync` |
+| `buildResult` | `buildResultAsync` |
+| `Result.From` | `Result.FromAsync` |
+| `Result#isErrAnd` | `Result#isErrAndAsync` |
+| `Result#unwrapOrElse` | `Result#unwrapOrElseAsync` |
+| `Result#map` | `Result#mapAsync` |
+| `Result#mapErr` | `Result#mapErrAsync` |
+| `Result#andThen` | `Result#andThenAsync` |
+| `Result#orElse` | `Result#orElseAsync` |
+| `Option.From` | `Option.FromAsync` |
+| `Option#isSomeAnd` | `Option#isSomeAndAsync` |
+| `Option#unwrapOrElse` | `Option#unwrapOrElseAsync` |
+| `Option#map` | `Option#mapAsync` |
+| `Option#andThen` | `Option#andThenAsync` |
+| `match` | `matchAsync` |
