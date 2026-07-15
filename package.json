@@ -1,6 +1,6 @@
 {
   "name": "resultant.js",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "A JavaScript library for handling results similar to Go and Rust.",
   "scripts": {
     "clean": "rm -rf dist",
